@@ -5,13 +5,14 @@ from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, or_
-from Database.database import init_db, get_db, CVE, HackingNews, AgentRun
+from Database import  CVE, HackingNews, AgentRun
+from Database.DatabaseManager import init_db, get_db
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
 import logging
-# Add these imports at the top
-from Database.database import POC
+from Database import POC
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CVE Intelligence API")

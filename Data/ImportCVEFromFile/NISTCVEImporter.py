@@ -10,7 +10,7 @@ NIST publishes CVE feeds as JSON files for different years:
 Download from: https://nvd.nist.gov/feeds/json/cve/1.1/
 
 Usage:
-    python import_nist_cves.py --file nvdcve-1.1-2024.json
+    python NISTCVEImporter.py --file nvdcve-1.1-2024.json
     python import_nist_cves. py --dir ./nist_data/  # Import all JSON files in directory
 """
 
@@ -20,7 +20,9 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Dict
-from Database.database import SessionLocal, CVE, init_db
+from Database import  CVE
+from Database.DatabaseManager import init_db
+from Database.database import SessionLocal
 
 # Setup logging
 logging.basicConfig(
@@ -286,13 +288,13 @@ def main():
         epilog="""
 Examples:
   # Import a single file
-  python import_nist_cves.py --file nvdcve-1.1-2024.json
+  python NISTCVEImporter.py --file nvdcve-1.1-2024.json
 
   # Import all files from directory
-  python import_nist_cves.py --dir ./nist_data/
+  python NISTCVEImporter.py --dir ./nist_data/
 
   # Initialize database first
-  python import_nist_cves.py --init-db --dir ./nist_data/
+  python NISTCVEImporter.py --init-db --dir ./nist_data/
         """
     )
 

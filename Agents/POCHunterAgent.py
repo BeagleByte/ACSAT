@@ -15,7 +15,7 @@ import logging
 import re
 from datetime import datetime
 from typing import List, Dict, Optional
-from Database.database import CVE, POC, AgentRun
+from Database import CVE, POC, AgentRun
 from sqlalchemy. orm import Session
 from sqlalchemy import desc
 from agno.agent import Agent

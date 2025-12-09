@@ -36,7 +36,7 @@ from agno.tools.website import WebsiteTools
 from datetime import datetime
 # datetime: For timestamp handling, recording when CVEs/news were published
 
-from Database.database import CVE, HackingNews, AgentRun
+from Database import CVE, HackingNews, AgentRun
 # SessionLocal: Factory for creating database sessions
 # CVE, HackingNews, AgentRun: SQLAlchemy ORM models (database tables)
 

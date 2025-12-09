@@ -10,8 +10,8 @@ import threading
 import time
 from dotenv import load_dotenv
 from uvicorn import Config, Server
-from scheduler import TaskScheduler
-from api import app as api_app
+from app.Scheduler import TaskScheduler
+from app.API import app as api_app
 from Database.database import init_db
 
 load_dotenv()
