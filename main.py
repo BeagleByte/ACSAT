@@ -1,16 +1,18 @@
 """
-Main entry point:  start API server and scheduler, then dashboard.
+Main entry point:  start API server and scheduler with local Ollama model.
+No API costs, everything runs locally!
 """
 import logging
 import os
 import sys
-from dotenv import load_dotenv
+import asyncio
 import threading
 import time
-from fastapi import FastAPI
+from dotenv import load_dotenv
 from uvicorn import Config, Server
 from scheduler import TaskScheduler
 from api import app as api_app
+from Database.database import init_db
 
 load_dotenv()
 
@@ -19,7 +21,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
 
 def run_api_server():
     """Run FastAPI server in a thread"""
@@ -32,28 +33,34 @@ def run_api_server():
     server = Server(config)
     asyncio.run(server.serve())
 
-
-async def run_dashboard():
-    """Run Dash dashboard in a thread (optional, or serve separately)"""
-    from dashboard import app as dash_app
-    dash_app.run_server(
-        host=os.getenv("DASH_HOST", "0.0.0.0"),
-        port=int(os.getenv("DASH_PORT", 8050)),
-        debug=False
-    )
-
-
 if __name__ == "__main__":
-    logger.info("Starting CVE Intelligence System...")
+    logger.info("Starting CVE Intelligence System with LOCAL Ollama Models...")
+
+    # Which Ollama model to use
+    # Options: mistral, llama2, neural-chat, orca-mini, etc.
+    model_name = os.getenv("OLLAMA_MODEL", "mistral")
+    logger.info(f"Using Ollama model: {model_name}")
+
+    # Check if Ollama is running
+    try:
+        import httpx
+        response = httpx.get("http://localhost:11434/api/tags", timeout=5)
+        if response.status_code == 200:
+            logger.info("✓ Ollama is running and accessible")
+        else:
+            logger.warning("⚠ Ollama responded but with non-200 status")
+    except Exception as e:
+        logger.error(f"✗ Ollama not accessible at localhost:11434")
+        logger.error(f"  Make sure to run:  ollama serve")
+        logger.error(f"  Error: {e}")
+        sys.exit(1)
 
     # Initialize database
-    from database import init_db
-
     init_db()
     logger.info("✓ Database initialized")
 
-    # Start task scheduler
-    scheduler = TaskScheduler()
+    # Start task scheduler with Ollama model
+    scheduler = TaskScheduler(model_name=model_name)
     scheduler.start()
     logger.info("✓ Task scheduler started")
 
@@ -62,14 +69,15 @@ if __name__ == "__main__":
     api_thread.start()
     logger.info("✓ API server started (http://0.0.0.0:8000)")
 
-    # Start Dash dashboard (in separate process for production, or same process for dev)
-    logger.info("✓ Dashboard available at http://0.0.0.0:8050")
-    logger.info("\n" + "=" * 60)
+    logger.info("\n" + "="*60)
     logger.info("CVE Intelligence System is running!")
-    logger.info("=" * 60)
+    logger.info("="*60)
+    logger.info(f"API Docs:        http://localhost:8000/docs")
+    logger.info(f"Dashboard:      http://localhost:8050")
+    logger.info(f"Ollama Model:   {model_name}")
+    logger.info("="*60 + "\n")
 
     try:
-        # Keep main thread alive
         while True:
             time.sleep(1)
     except KeyboardInterrupt:

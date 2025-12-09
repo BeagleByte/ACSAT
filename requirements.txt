@@ -18,3 +18,5 @@ plotly
 pandas
 python-dateutil
 pytz
+ddgs
+ollama

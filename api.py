@@ -5,12 +5,13 @@ from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, or_
-from database import init_db, get_db, CVE, HackingNews, AgentRun
+from Database.database import init_db, get_db, CVE, HackingNews, AgentRun
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
 import logging
-
+# Add these imports at the top
+from Database.database import POC
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CVE Intelligence API")
@@ -74,6 +75,75 @@ class AgentRunResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+# ==================== POC Endpoints ====================
+
+class POCResponse(BaseModel):
+    id: str
+    cve_id: str
+    found: bool
+    title: Optional[str]
+    description: Optional[str]
+    url: Optional[str]
+    source: str
+    poc_type: Optional[str]
+    language: Optional[str]
+    stars: int
+    verified: bool
+    found_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+@app.get("/api/pocs/{cve_id}", response_model=List[POCResponse])
+async def get_pocs_for_cve(cve_id: str, db: Session = Depends(get_db)):
+    """Get all POCs for a specific CVE"""
+    pocs = db.query(POC).filter(POC.cve_id == cve_id).order_by(desc(POC.stars)).all()
+    return pocs
+
+
+@app.get("/api/pocs", response_model=List[POCResponse])
+async def get_all_pocs(
+        skip: int = Query(0, ge=0),
+        limit: int = Query(50, ge=1, le=500),
+        source: Optional[str] = None,
+        found: Optional[bool] = None,
+        db: Session = Depends(get_db)
+):
+    """Get POCs with optional filtering"""
+    query = db.query(POC)
+
+    if source:
+        query = query.filter(POC.source == source)
+
+    if found is not None:
+        query = query.filter(POC.found == found)
+
+    pocs = query.order_by(desc(POC.found_at)).offset(skip).limit(limit).all()
+    return pocs
+
+
+@app.get("/api/pocs/stats/summary")
+async def get_poc_stats(db: Session = Depends(get_db)):
+    """Get POC statistics"""
+    total_pocs = db.query(POC).count()
+    cves_with_pocs = db.query(POC.cve_id).distinct().count()
+    cves_without_pocs = db.query(CVE).filter(
+        ~CVE.cve_id.in_(db.query(POC.cve_id).distinct())
+    ).count()
+
+    by_source = {}
+    for source in db.query(POC.source).distinct():
+        count = db.query(POC).filter(POC.source == source[0]).count()
+        by_source[source[0]] = count
+
+    return {
+        "total_pocs": total_pocs,
+        "cves_with_pocs": cves_with_pocs,
+        "cves_without_pocs": cves_without_pocs,
+        "by_source": by_source
+    }
 
 # ==================== CVE Endpoints ====================
 
