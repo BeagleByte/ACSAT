@@ -27,4 +27,5 @@ class CVE(Base):
     __table_args__ = (
         Index('idx_cve_published', 'published_date'),
         Index('idx_cve_severity', 'severity'),
+        Index('idx_cve_source', 'source'),
     )

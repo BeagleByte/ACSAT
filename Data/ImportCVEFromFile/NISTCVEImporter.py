@@ -13,7 +13,10 @@ Usage:
     python NISTCVEImporter.py --file nvdcve-1.1-2024.json
     python import_nist_cves. py --dir ./nist_data/  # Import all JSON files in directory
 """
+import sys
+from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import json
 import argparse
 import logging
@@ -22,6 +25,7 @@ from datetime import datetime
 from typing import Dict
 from Database.DatabaseManager import init_db
 from Database import CVE, SessionLocal
+
 
 # Setup logging
 logging.basicConfig(
@@ -42,50 +46,46 @@ class NISTCVEImporter:
         self.error_count = 0
 
     def import_file(self, file_path: str) -> Dict[str, int]:
-        """
-        Import CVEs from a single NIST JSON file.
-
-        Args:
-            file_path (str): Path to NIST CVE JSON file
-
-        Returns:
-            dict: Statistics about import (imported, skipped, errors)
-        """
+        """Import CVEs from a single NIST JSON file (handles both 1.1 and 2.0 formats)"""
         file_path = Path(file_path)
 
         if not file_path.exists():
             logger.error(f"File not found: {file_path}")
             return {"imported": 0, "skipped": 0, "errors": 1}
 
-        logger.info(f"Starting import from:  {file_path}")
+        logger.info(f"Starting import from: {file_path}")
         self.imported_count = 0
         self.skipped_count = 0
         self.error_count = 0
 
         try:
-            # Read JSON file
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Extract CVE items
-            cve_items = data.get("CVE_Items", [])
+            # Detect format: 1.1 has CVE_Items, 2.0 has vulnerabilities
+            if "CVE_Items" in data:
+                cve_items = data.get("CVE_Items", [])
+                format_version = "1.1"
+            else:
+                cve_items = data.get("vulnerabilities", [])
+                format_version = "2.0"
+
             total_items = len(cve_items)
+            logger.info(f"Found {total_items} CVEs in file (NIST format {format_version})")
 
-            logger.info(f"Found {total_items} CVEs in file")
-
-            # Process each CVE
             for idx, item in enumerate(cve_items, 1):
-                # Log progress every 100 items
                 if idx % 100 == 0:
                     logger.info(f"Processing {idx}/{total_items}...")
 
                 try:
-                    self._process_cve_item(item)
+                    self._process_cve_item(item, format_version)
+                    # performace optimization: commit in batches
+                    if idx % 500 == 0:  # Commit every 500 records
+                        self.db.commit()
                 except Exception as e:
                     logger.warning(f"Error processing CVE item {idx}: {e}")
                     self.error_count += 1
 
-            # Commit all changes
             self.db.commit()
 
             logger.info(f"✓ Import completed!")
@@ -106,43 +106,16 @@ class NISTCVEImporter:
             logger.error(f"Import failed: {e}")
             return {"imported": 0, "skipped": 0, "errors": 1}
 
-    def _process_cve_item(self, item: Dict):
-        """
-        Process a single CVE item from NIST JSON.
+    def _process_cve_item(self, item: Dict, format_version: str = "1.1"):
+        """Process a single CVE item from NIST JSON (handles both 1.1 and 2.0 formats)"""
+        # Extract CVE ID based on format
+        if format_version == "2.0":
+            cve_id = item.get("cve", {}).get("id")
+            cve_data = item.get("cve", {})
+        else:
+            cve_data = item.get("cve", {})
+            cve_id = cve_data.get("CVE_data_meta", {}).get("ID")
 
-        NIST JSON structure:
-        {
-          "cve":  {
-            "CVE_data_meta": {
-              "ID": "CVE-2024-1234"
-            },
-            "description": {
-              "description_data": [
-                {"value": "Description text... "}
-              ]
-            },
-            "references": {... }
-          },
-          "impact": {
-            "baseMetricV3": {
-              "cvssV3": {
-                "baseSeverity": "HIGH",
-                "baseScore": 9.8,
-                "vectorString":  "..."
-              }
-            }
-          },
-          "publishedDate": "2024-01-15T12:30:00Z",
-          "lastModifiedDate": "2024-01-20T10:00:00Z"
-        }
-        """
-
-        # Extract CVE metadata
-        cve_data = item.get("cve", {})
-        cve_meta = cve_data.get("CVE_data_meta", {})
-        cve_id = cve_meta.get("ID")
-
-        # Skip if no CVE ID
         if not cve_id:
             self.error_count += 1
             return
@@ -155,129 +128,162 @@ class NISTCVEImporter:
 
         # Extract description
         description_parts = []
-        for desc_item in cve_data.get("description", {}).get("description_data", []):
-            desc_value = desc_item.get("value", "").strip()
-            if desc_value:
-                description_parts.append(desc_value)
+        if format_version == "2.0":
+            for desc_item in cve_data.get("descriptions", []):
+                desc_value = desc_item.get("value", "").strip()
+                if desc_value:
+                    description_parts.append(desc_value)
+                    break  # Use only English description
+        else:
+            for desc_item in cve_data.get("description", {}).get("description_data", []):
+                desc_value = desc_item.get("value", "").strip()
+                if desc_value:
+                    description_parts.append(desc_value)
+
         description = " ".join(description_parts)
 
         # Extract references
         references = []
-        for ref_data in cve_data.get("references", {}).get("reference_data", []):
-            url = ref_data.get("url", "").strip()
-            if url:
-                references.append(url)
+        if format_version == "2.0":
+            for ref_data in cve_data.get("references", []):
+                url = ref_data.get("url", "").strip()
+                if url:
+                    references.append(url)
+        else:
+            for ref_data in cve_data.get("references", {}).get("reference_data", []):
+                url = ref_data.get("url", "").strip()
+                if url:
+                    references.append(url)
 
-        # Extract impact/severity info
-        impact = item.get("impact", {})
-        base_metric_v3 = impact.get("baseMetricV3", {})
-        cvss_v3 = base_metric_v3.get("cvssV3", {})
+        # Extract CVSS data
+        severity = "UNKNOWN"
+        cvss_score = None
+        cvss_vector = ""
+        base_metric_v3 = {}
 
-        severity = cvss_v3.get("baseSeverity", "UNKNOWN")
-        cvss_score = cvss_v3.get("baseScore")
-        cvss_vector = cvss_v3.get("vectorString", "")
+        if format_version == "2.0":
+            metrics = cve_data.get("metrics", {})
+            if "cvssMetricV31" in metrics:
+                cvss_data = metrics["cvssMetricV31"][0].get("cvssData", {})
+                severity = cvss_data.get("baseSeverity", "UNKNOWN")
+                cvss_score = cvss_data.get("baseScore")
+                cvss_vector = cvss_data.get("vectorString", "")
+                base_metric_v3 = {"cvssV3": cvss_data}
+            elif "cvssMetricV30" in metrics:
+                cvss_data = metrics["cvssMetricV30"][0].get("cvssData", {})
+                severity = cvss_data.get("baseSeverity", "UNKNOWN")
+                cvss_score = cvss_data.get("baseScore")
+                cvss_vector = cvss_data.get("vectorString", "")
+                base_metric_v3 = {"cvssV3": cvss_data}
+        else:
+            impact = item.get("impact", {})
+            base_metric_v3 = impact.get("baseMetricV3", {})
+            cvss_v3 = base_metric_v3.get("cvssV3", {})
+            severity = cvss_v3.get("baseSeverity", "UNKNOWN")
+            cvss_score = cvss_v3.get("baseScore")
+            cvss_vector = cvss_v3.get("vectorString", "")
 
         # Extract affected products/CPE
         affected_products = []
-        for config in item.get("configurations", {}).get("nodes", []):
-            for cpe_match in config.get("cpe_match", []):
-                cpe = cpe_match.get("cpe23Uri", "").strip()
-                if cpe:
-                    affected_products.append(cpe)
+        if format_version == "2.0":
+            for config in cve_data.get("configurations", []):
+                for node in config.get("nodes", []):
+                    for cpe_match in node.get("cpeMatch", []):
+                        cpe = cpe_match.get("criteria", "").strip()
+                        if cpe:
+                            affected_products.append(cpe)
+        else:
+            for config in item.get("configurations", {}).get("nodes", []):
+                for cpe_match in config.get("cpe_match", []):
+                    cpe = cpe_match.get("cpe23Uri", "").strip()
+                    if cpe:
+                        affected_products.append(cpe)
 
         # Parse dates
+        if format_version == "2.0":
+            pub_date_str = cve_data.get("published", "")
+            mod_date_str = cve_data.get("lastModified", "")
+        else:
+            pub_date_str = item.get("publishedDate", "")
+            mod_date_str = item.get("lastModifiedDate", "")
+
         try:
-            published_date = datetime.fromisoformat(
-                item.get("publishedDate", "").replace("Z", "+00:00")
-            )
+            published_date = datetime.fromisoformat(pub_date_str.replace("Z", "+00:00"))
         except:
             published_date = datetime.utcnow()
 
         try:
-            modified_date = datetime.fromisoformat(
-                item.get("lastModifiedDate", "").replace("Z", "+00:00")
-            )
+            modified_date = datetime.fromisoformat(mod_date_str.replace("Z", "+00:00"))
         except:
             modified_date = None
 
         # Create CVE object
         cve = CVE(
             cve_id=cve_id,
-            title=cve_id,  # NIST doesn't have separate titles
-            description=description[: 5000],  # Limit to 5000 chars
+            title=cve_id,
+            description=description[:5000],
             severity=severity,
             cvss_score=str(cvss_score) if cvss_score else None,
-            cvss_vector=cvss_vector,
             affected_products=affected_products,
             references=references,
             published_date=published_date,
-            modified_date=modified_date,
-            source="nist_bulk_import",  # Mark as bulk imported
-            metadata={
+            last_modified=modified_date,  # Changed from modified_date to last_modified
+            source="nist_bulk_import",
+            cve_metadata={  # Changed from metadata to cve_metadata
                 "import_source": "NIST JSON Feed",
+                "format_version": format_version,
+                "cvss_vector": cvss_vector,
                 "impact_v3": base_metric_v3
             }
         )
 
-        # Add to session
         self.db.add(cve)
         self.imported_count += 1
 
-    def import_directory(self, directory: str) -> Dict[str, int]:
-        """
-        Import all NIST JSON files from a directory.
+    def close(self):
+        """Close database session"""
+        self.db.close()
 
-        Args:
-            directory (str): Path to directory containing NIST JSON files
-
-        Returns:
-            dict: Combined statistics
-        """
-        dir_path = Path(directory)
+    def import_directory(self, dir_path: str) -> Dict[str, int]:
+        """Import CVEs from all NIST JSON files in a directory"""
+        dir_path = Path(dir_path)
 
         if not dir_path.is_dir():
-            logger.error(f"Directory not found: {directory}")
+            logger.error(f"Directory not found: {dir_path}")
             return {"imported": 0, "skipped": 0, "errors": 1}
 
-        # Find all NIST CVE JSON files
-        json_files = sorted(dir_path.glob("nvdcve-1.1-*. json"))
+        # Find all NIST CVE JSON files (handles both 1.1 and 2.0 formats)
+        json_files = sorted(dir_path.glob("nvdcve-*.json"))
 
         if not json_files:
-            logger.warning(f"No NIST CVE files found in {directory}")
-            logger.warning("Expected files like:  nvdcve-1.1-2024.json, nvdcve-1.1-2023.json, etc.")
+            logger.warning(f"No NIST CVE files found in {dir_path}/")
+            logger.warning("Expected files like: nvdcve-2.0-2025.json, nvdcve-1.1-2024.json, etc.")
             return {"imported": 0, "skipped": 0, "errors": 0}
 
-        logger.info(f"Found {len(json_files)} NIST CVE files")
+        logger.info(f"Found {len(json_files)} CVE files to import")
 
         total_imported = 0
         total_skipped = 0
         total_errors = 0
 
-        # Import each file
-        for json_file in json_files:
-            logger.info(f"\n{'=' * 60}")
-            result = self.import_file(str(json_file))
+        for file_path in json_files:
+            logger.info(f"\n{'='*60}")
+            result = self.import_file(str(file_path))
             total_imported += result["imported"]
             total_skipped += result["skipped"]
             total_errors += result["errors"]
 
-        logger.info(f"\n{'=' * 60}")
-        logger.info("TOTAL IMPORT RESULTS:")
+        logger.info(f"\n{'='*60}")
+        logger.info("✓ Directory import completed!")
         logger.info(f"  - Total Imported: {total_imported}")
         logger.info(f"  - Total Skipped: {total_skipped}")
         logger.info(f"  - Total Errors: {total_errors}")
-        logger.info(f"{'=' * 60}\n")
 
         return {
             "imported": total_imported,
             "skipped": total_skipped,
             "errors": total_errors
         }
-
-    def close(self):
-        """Close database session"""
-        self.db.close()
-
 
 def main():
     """Command-line interface for CVE import"""

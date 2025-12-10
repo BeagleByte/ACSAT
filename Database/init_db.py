@@ -11,6 +11,8 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, inspect
 
+from Database import Base
+
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
