@@ -5,7 +5,7 @@ set -e
 echo "=== CVE Intelligence System Startup ==="
 
 # Activate virtualenv
-source . venv/bin/activate
+source .venv/bin/activate
 
 # Set environment
 export PYTHONUNBUFFERED=1

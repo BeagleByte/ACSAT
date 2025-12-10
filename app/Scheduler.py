@@ -20,8 +20,8 @@ class AgentScheduler:
 
     def __init__(self):
         self.scheduler = BackgroundScheduler()
-        self.cve_agent = CVECollectorAgent(model_name="mistral")
-        self.darknet_agent = DarknetNewsAgent(model_name="mistral")
+        self.cve_agent = CVECollectorAgent(model_name="llama3.2:3b")
+        self.darknet_agent = DarknetNewsAgent(model_name="llama3.2:3b")
 
     def start(self):
         """Start scheduled agent jobs"""
@@ -46,13 +46,6 @@ class AgentScheduler:
             replace_existing=True
         )
 
-        # Optional: Run CVE collector immediately on startup (for testing)
-        self.scheduler.add_job(
-            func=self._run_cve_agent,
-            id='cve_collector_startup',
-            name='CVE Collector (Startup)'
-        )
-
         self.scheduler.start()
         logger.info("✓ Scheduler started")
         logger.info("  📡 CVE Collector: Daily at 2:00 AM")
@@ -61,26 +54,22 @@ class AgentScheduler:
     def _run_cve_agent(self):
         """Execute CVE collector agent"""
         logger.info("⏰ Running scheduled CVE collection...")
-        db = next(get_db())
-        try:
-            result = self.cve_agent.run(db)
-            logger.info(f"✓ CVE collection: {result}")
-        except Exception as e:
-            logger.error(f"✗ CVE collection failed: {e}")
-        finally:
-            db.close()
+        with get_db() as db:
+            try:
+                result = self.cve_agent.run(db)
+                logger.info(f"✓ CVE collection: {result}")
+            except Exception as e:
+                logger.error(f"✗ CVE collection failed: {e}")
 
     def _run_darknet_agent(self):
         """Execute darknet scraper agent"""
         logger.info("⏰ Running scheduled darknet scraping...")
-        db = next(get_db())
-        try:
-            result = self.darknet_agent.run(db)
-            logger.info(f"✓ Darknet scraping: {result}")
-        except Exception as e:
-            logger.error(f"✗ Darknet scraping failed: {e}")
-        finally:
-            db.close()
+        with get_db() as db:
+            try:
+                result = self.darknet_agent.run(db)
+                logger.info(f"✓ Darknet scraping: {result}")
+            except Exception as e:
+                logger.error(f"✗ Darknet scraping failed: {e}")
 
     def stop(self):
         """Stop scheduler"""

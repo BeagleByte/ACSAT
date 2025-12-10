@@ -17,7 +17,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool, QueuePool
 from Database.DatabaseConfig import get_config
-
+from sqlalchemy import text
 logger = logging.getLogger(__name__)
 
 
@@ -129,7 +129,7 @@ def init_db():
 
         # Test connection
         with _SessionLocal() as db:
-            db.execute("SELECT 1")
+            db.execute(text("SELECT 1"))
             logger.info("✓ Database connection test successful")
 
         logger.info(f"✓ Database initialized with pool_size={config.database.pool_size}")
@@ -139,7 +139,6 @@ def init_db():
         raise
 
 
-@contextmanager
 def get_db() -> Generator[Session, None, None]:
     """
     Get a database session with automatic cleanup.

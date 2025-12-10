@@ -43,8 +43,8 @@ class CVECollectorAgent:
         self.agent = Agent(
             name="cve-collector",
             model=Ollama(
-                model_id=model_name,
-                base_url="http://192.168.1.155:11434",
+                id="llama3.2:3b",
+                host="http://192.168.1.155:11434",
                 timeout=120
             ),
             tools=[WebsiteTools()],

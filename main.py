@@ -9,10 +9,13 @@ import asyncio
 import threading
 import time
 from dotenv import load_dotenv
+from fastapi import FastAPI
 from uvicorn import Config, Server
-from app.Scheduler import TaskScheduler
+from app.Scheduler import AgentScheduler
 from app.API import app as api_app
 from Database.database import init_db
+from threading import Thread
+from Dashboard.Dashboard import app as dash_app
 
 load_dotenv()
 
@@ -21,6 +24,16 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+@app.get("/")
+async def root():
+    return {"message": "ACSD API is running"}
+
+def run_dash():
+    """Run Dash dashboard in a separate thread"""
+    dash_app.run(debug=False, host="0.0.0.0", port=8050)
 
 def run_api_server():
     """Run FastAPI server in a thread"""
@@ -38,7 +51,7 @@ if __name__ == "__main__":
 
     # Which Ollama model to use
     # Options: mistral, llama2, neural-chat, orca-mini, etc.
-    model_name = os.getenv("OLLAMA_MODEL", "mistral")
+    model_name = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     logger.info(f"Using Ollama model: {model_name}")
 
     # Check if Ollama is running
@@ -60,7 +73,7 @@ if __name__ == "__main__":
     logger.info("✓ Database initialized")
 
     # Start task scheduler with Ollama model
-    scheduler = TaskScheduler(model_name=model_name)
+    scheduler = AgentScheduler()
     scheduler.start()
     logger.info("✓ Task scheduler started")
 
@@ -73,9 +86,13 @@ if __name__ == "__main__":
     logger.info("CVE Intelligence System is running!")
     logger.info("="*60)
     logger.info(f"API Docs:        http://localhost:8000/docs")
-    logger.info(f"Dashboard:      http://localhost:8050")
+
     logger.info(f"Ollama Model:   {model_name}")
     logger.info("="*60 + "\n")
+
+    dash_thread = Thread(target=run_dash, daemon=True)
+    dash_thread.start()
+    logger.info(f"Dashboard:      http://localhost:8050")
 
     try:
         while True:
